@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fast CSV Splitter</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <style>
+        body { font-family: sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; line-height: 1.6; background: #f4f4f9; }
+        .container { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        h2 { color: #333; }
+        input, select, button { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box; }
+        button { background: #28a745; color: white; border: none; cursor: pointer; font-size: 16px; font-weight: bold; }
+        button:hover { background: #218838; }
+        #status { margin-top: 20px; padding: 10px; border-radius: 5px; display: none; }
+        .loading { background: #e2e3e5; color: #383d41; }
+        .success { background: #d4edda; color: #155724; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>⚡ Fast CSV Splitter</h2>
+    <p>Ye tool aapke browser mein hi kaam karta hai, isliye ye bahut tez hai.</p>
+    
+    <label>CSV File Chunein:</label>
+    <input type="file" id="csvFile" accept=".csv">
+
+    <label>Todne ka tarika:</label>
+    <select id="splitMode">
+        <option value="rows">Rows ke hisab se (e.g. 999,999)</option>
+        <option value="parts">Barabar parts mein (e.g. 5 parts)</option>
+    </select>
+
+    <label id="valueLabel">Rows ki sankhya:</label>
+    <input type="number" id="splitValue" value="999999">
+
+    <button onclick="processFile()">Split aur Download Karein</button>
+    
+    <div id="status"></div>
+</div>
+
+<script>
+    const splitMode = document.getElementById('splitMode');
+    const valueLabel = document.getElementById('valueLabel');
+    
+    splitMode.addEventListener('change', () => {
+        valueLabel.innerText = splitMode.value === 'rows' ? "Rows ki sankhya:" : "Kitne parts mein todna hai:";
+    });
+
+    async function processFile() {
+        const fileInput = document.getElementById('csvFile');
+        const status = document.getElementById('status');
+        const splitVal = parseInt(document.getElementById('splitValue').value);
+        
+        if (!fileInput.files.length) return alert("File chunein!");
+
+        status.style.display = 'block';
+        status.className = 'loading';
+        status.innerText = "Processing... Data read kiya ja raha hai (Isme server ki zarurat nahi hai)";
+
+        const file = fileInput.files[0];
+        const fileName = file.name.replace(".csv", "");
+        const zip = new JSZip();
+        
+        let headers = "";
+        let currentRows = [];
+        let fileCount = 1;
+        let totalProcessedRows = 0;
+
+        // Step 1: Agar 'parts' mode hai toh pehle total rows count karein
+        let finalChunkSize = splitVal;
+        if (splitMode.value === 'parts') {
+            status.innerText = "Total rows count ho rahi hain...";
+            const rowCount = await countRows(file);
+            finalChunkSize = Math.ceil(rowCount / splitVal);
+        }
+
+        // Step 2: Main Processing
+        Papa.parse(file, {
+            header: false,
+            skipEmptyLines: true,
+            chunk: function(results, parser) {
+                if (!headers) {
+                    headers = results.data[0].join(",") + "\n";
+                    results.data.shift();
+                }
+
+                currentRows.push(...results.data.map(row => row.join(",")));
+
+                if (currentRows.length >= finalChunkSize) {
+                    const content = headers + currentRows.slice(0, finalChunkSize).join("\n");
+                    zip.file(`${fileName}_part_${fileCount}.csv`, content);
+                    currentRows = currentRows.slice(finalChunkSize);
+                    fileCount++;
+                    status.innerText = `Part ${fileCount-1} taiyar...`;
+                }
+            },
+            complete: function() {
+                if (currentRows.length > 0) {
+                    zip.file(`${fileName}_part_${fileCount}.csv`, headers + currentRows.join("\n"));
+                }
+
+                status.innerText = "ZIP file ban rahi hai... thoda intezar karein.";
+                zip.generateAsync({type:"blob"}).then(function(content) {
+                    const link = document.createElement("a");
+                    link.href = URL.createObjectURL(content);
+                    link.download = `${fileName}_split.zip`;
+                    link.click();
+                    status.className = 'success';
+                    status.innerText = "Done! File download ho gayi.";
+                });
+            }
+        });
+    }
+
+    function countRows(file) {
+        return new Promise((resolve) => {
+            let count = 0;
+            Papa.parse(file, {
+                step: () => count++,
+                complete: () => resolve(count - 1)
+            });
+        });
+    }
+</script>
+
+</body>
+</html>
